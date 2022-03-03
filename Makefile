@@ -1,98 +1,60 @@
 # The binary to build (just the basename).
-MODULE := blueprint
+PROJECT_NAME := blueprint
 
-# Where to push the docker image.
-REGISTRY ?= docker.pkg.github.com/martinheinz/python-project-blueprint
+# colors
+GREEN = $(shell tput -Txterm setaf 2)
+YELLOW = $(shell tput -Txterm setaf 3)
+WHITE = $(shell tput -Txterm setaf 7)
+RESET = $(shell tput -Txterm sgr0)
+GRAY = $(shell tput -Txterm setaf 6)
+TARGET_MAX_CHAR_NUM = 20
 
-IMAGE := $(REGISTRY)/$(MODULE)
-
-# This version-strategy uses git tags to set the version string
-TAG := $(shell git describe --tags --always --dirty)
-
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
+## Runs application. | Common
 run:
-	@python -m $(MODULE)
+	@python -m $(PROJECT_NAME)
 
+## Runs tests. | Tests
 test:
 	@pytest
 
+## Formats code with `black`. | Linters
+black:
+	@black $(PROJECT_NAME)
+
+## Checks types with `mypy`.
+mypy:
+	@mypy $(PROJECT_NAME)
+
+## Formats code with `flake8`.
 lint:
-	@echo "\n${BLUE}Running Pylint against source and test files...${NC}\n"
-	@pylint --rcfile=setup.cfg **/*.py
-	@echo "\n${BLUE}Running Flake8 against source and test files...${NC}\n"
 	@flake8
-	@echo "\n${BLUE}Running Bandit against source files...${NC}\n"
-	@bandit -r --ini setup.cfg
 
-# Example: make build-prod VERSION=1.0.0
-build-prod:
-	@echo "\n${BLUE}Building Production image with labels:\n"
-	@echo "name: $(MODULE)"
-	@echo "version: $(VERSION)${NC}\n"
-	@sed                                     \
-	    -e 's|{NAME}|$(MODULE)|g'            \
-	    -e 's|{VERSION}|$(VERSION)|g'        \
-	    prod.Dockerfile | docker build -t $(IMAGE):$(VERSION) -f- .
-
-
-build-dev:
-	@echo "\n${BLUE}Building Development image with labels:\n"
-	@echo "name: $(MODULE)"
-	@echo "version: $(TAG)${NC}\n"
-	@sed                                 \
-	    -e 's|{NAME}|$(MODULE)|g'        \
-	    -e 's|{VERSION}|$(TAG)|g'        \
-	    dev.Dockerfile | docker build -t $(IMAGE):$(TAG) -f- .
-
-# Example: make shell CMD="-c 'date > datefile'"
-shell: build-dev
-	@echo "\n${BLUE}Launching a shell in the containerized build environment...${NC}\n"
-		@docker run                                                 \
-			-ti                                                     \
-			--rm                                                    \
-			--entrypoint /bin/bash                                  \
-			-u $$(id -u):$$(id -g)                                  \
-			$(IMAGE):$(TAG)										    \
-			$(CMD)
-
-# Example: make push VERSION=0.0.2
-push: build-prod
-	@echo "\n${BLUE}Pushing image to GitHub Docker Registry...${NC}\n"
-	@docker push $(IMAGE):$(VERSION)
-
-cluster:
-	@if [ $$(kind get clusters | wc -l) = 0 ]; then \
-		kind create cluster --config ./k8s/cluster/kind-config.yaml --name kind; \
-	fi
-	@kubectl cluster-info --context kind-kind
-	@kubectl get nodes
-	@kubectl config set-context kind-kind --namespace $(MODULE)
-
-deploy-local:
-	@kubectl rollout restart deployment $(MODULE)
-
-cluster-debug:
-	@echo "\n${BLUE}Current Pods${NC}\n"
-	@kubectl describe pods
-	@echo "\n${BLUE}Recent Logs${NC}\n"
-	@kubectl logs --since=1h -lapp=$(MODULE)
-
-cluster-rsh:
-	# if your container has bash available
-	@kubectl exec -it $$(kubectl get pod -l app=${MODULE} -o jsonpath="{.items[0].metadata.name}") -- /bin/bash
-
-manifest-update:
-	@kubectl apply -f ./k8s/app.yaml
-
-version:
-	@echo $(TAG)
-
-.PHONY: clean image-clean build-prod push test
-
+## Clean _Pytest_ and coverage cache/files:
 clean:
 	rm -rf .pytest_cache .coverage .pytest_cache coverage.xml
 
-docker-clean:
-	@docker system prune -f --filter "label=name=$(MODULE)"
+## Shows help.
+help:
+	@echo ''
+	@echo 'Usage:'
+	@echo ''
+	@echo '  ${YELLOW}make${RESET} ${GREEN}<target>${RESET}'
+	@echo ''
+	@echo 'Targets:'
+	@awk '/^[a-zA-Z\-\_]+:/ { \
+		helpMessage = match(lastLine, /^## (.*)/); \
+		if (helpMessage) { \
+		    if (index(lastLine, "|") != 0) { \
+				stage = substr(lastLine, index(lastLine, "|") + 1); \
+				printf "\n ${GRAY}%s: \n\n", stage;  \
+			} \
+			helpCommand = substr($$1, 0, index($$1, ":")-1); \
+			helpMessage = substr(lastLine, RSTART + 3, RLENGTH); \
+			if (index(lastLine, "|") != 0) { \
+				helpMessage = substr(helpMessage, 0, index(helpMessage, "|")-1); \
+			} \
+			printf "  ${YELLOW}%-$(TARGET_MAX_CHAR_NUM)s${RESET} ${GREEN}%s${RESET}\n", helpCommand, helpMessage; \
+		} \
+	} \
+	{ lastLine = $$0 }' $(MAKEFILE_LIST)
+	@echo ''
